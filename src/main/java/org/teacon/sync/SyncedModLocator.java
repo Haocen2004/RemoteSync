@@ -26,6 +26,7 @@ import cpw.mods.modlauncher.Launcher;
 import cpw.mods.modlauncher.api.IEnvironment;
 import net.minecraftforge.fml.loading.moddiscovery.AbstractJarFileLocator;
 import net.minecraftforge.forgespi.Environment;
+import net.minecraftforge.forgespi.locating.IModFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bouncycastle.openpgp.PGPCompressedData;
@@ -43,10 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
@@ -96,7 +94,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                 }
             }
         }).thenApplyAsync((fcModList) -> {
-            try (Reader reader = Channels.newReader(fcModList, "UTF-8")) {
+            try (Reader reader = Channels.newReader(fcModList, StandardCharsets.UTF_8)) {
                 return GSON.fromJson(reader, ModEntry[].class);
             } catch (JsonParseException e) {
                 LOGGER.warn("Error parsing mod list", e);
@@ -122,8 +120,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         try (InputStream input = PGPUtil.getDecoderStream(Channels.newInputStream(fc))) {
             BcPGPObjectFactory factory = new BcPGPObjectFactory(input);
             Object o = factory.nextObject();
-            if (o instanceof PGPCompressedData) {
-                PGPCompressedData compressedData = (PGPCompressedData) o;
+            if (o instanceof PGPCompressedData compressedData) {
                 factory = new BcPGPObjectFactory(compressedData.getDataStream());
                 sigList = (PGPSignatureList) factory.nextObject();
             } else {
@@ -132,6 +129,15 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         }
         return sigList;
     }
+
+        @Override
+        public List<IModFile> scanMods() {
+            List<IModFile> result = new ArrayList<>();
+            for (Optional<IModFile> optionalIModFile : scanCandidates().map(this::createMod).toList()) {
+                optionalIModFile.map(result::add);
+            }
+            return result;
+        }
 
     @Override
     public Stream<Path> scanCandidates() {
