@@ -37,6 +37,7 @@ import org.bouncycastle.openpgp.bc.BcPGPObjectFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -56,12 +57,16 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
 
     private static final Gson GSON = new Gson();
 
-    private final Path modDirBase;
     private final Consumer<String> progressFeed;
 
     private final PGPKeyStore keyStore;
 
-    private final CompletableFuture<Collection<Path>> fetchPathsTask;
+    private CompletableFuture<Collection<Path>> fetchPathsTask;
+
+    private boolean hasModSync = false;
+
+    private final List<CompletableFuture<Collection<Path>>> otherSyncTasks;
+    private final Path sigDir;
 
     public SyncedModLocator() throws Exception {
         this.progressFeed = Launcher.INSTANCE.environment().getProperty(Environment.Keys.PROGRESSMESSAGE.get()).orElse(msg -> {});
@@ -74,45 +79,57 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
             LOGGER.warn("RemoteSync config remote_sync.json does not exist. All configurable values will use their default values instead.");
             cfg = new Config();
         }
+        final Path baseDir = Files.createDirectories(gameDir.resolve(cfg.baseDir));
+        this.sigDir = Files.createDirectories(baseDir.resolve(cfg.sigDir));
         final Path keyStorePath = gameDir.resolve(cfg.keyRingPath);
         this.keyStore = new PGPKeyStore(keyStorePath, cfg.keyServers, cfg.keyIds);
         this.keyStore.debugDump();
-        this.modDirBase = Files.createDirectories(gameDir.resolve(cfg.modDir));
-        this.fetchPathsTask = CompletableFuture.supplyAsync(() -> {
-            Path localCache = gameDir.resolve(cfg.localModList);
-            try {
-                this.progressFeed.accept("RemoteSync: fetching mod list");
-                // Intentionally do not use config value to ensure that the mod list is always up-to-date
-                return Utils.fetch(cfg.modList, localCache, cfg.timeout, false);
-            } catch (IOException e) {
-                LOGGER.warn("Failed to download mod list, will try using locally cached mod list instead. Mods may be outdated.", e);
-                System.setProperty("org.teacon.sync.failed", "true");
+        this.otherSyncTasks = new ArrayList<>();
+        for (TypeEntry typeEntry: cfg.syncFiles) {
+            LOGGER.debug("Start to sync {} to {}.",typeEntry.name,typeEntry.saveDir);
+            Path saveDirPath = Files.createDirectories(gameDir.resolve(typeEntry.saveDir));
+            CompletableFuture<Collection<Path>> tempTask = CompletableFuture.supplyAsync(() -> {
+                Path localCache = baseDir.resolve(typeEntry.localCache);
                 try {
-                    return FileChannel.open(localCache);
-                } catch (Exception e2) {
-                    throw new RuntimeException("Failed to open locally cached mod list", e2);
+                    this.progressFeed.accept("RemoteSync: fetching "+typeEntry.name+" list");
+                    // Intentionally do not use config value to ensure that the mod list is always up-to-date
+                    return Utils.fetch(typeEntry.file, localCache, cfg.timeout, false);
+                } catch (IOException e) {
+                    LOGGER.warn("Failed to download "+typeEntry.name+" list, will try using locally cached "+typeEntry.name+" list instead. Files may be outdated.", e);
+                    System.setProperty("org.teacon.sync.failed", "true");
+                    try {
+                        return FileChannel.open(localCache);
+                    } catch (Exception e2) {
+                        throw new RuntimeException("Failed to open locally cached "+typeEntry.name+" list", e2);
+                    }
                 }
+            }).thenApplyAsync((fcModList) -> {
+                try (Reader reader = Channels.newReader(fcModList, StandardCharsets.UTF_8)) {
+                    return GSON.fromJson(reader, FileEntry[].class);
+                } catch (JsonParseException e) {
+                    LOGGER.warn("Error parsing "+typeEntry.name+" list", e);
+                    throw e;
+                } catch (IOException e) {
+                    LOGGER.warn("Failed to open "+typeEntry.name+" list file", e);
+                    throw new RuntimeException(e);
+                }
+            }).thenComposeAsync(entries -> {
+                List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> Stream.of(
+                        Utils.downloadIfMissingAsync(saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
+                        Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
+                )).toList();
+                return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .thenApply(v -> Arrays.stream(entries)
+                                .map(it -> saveDirPath.resolve(it.name))
+                                .filter(this::isValid).toList());
+            });
+            this.otherSyncTasks.add(tempTask);
+            if (typeEntry.name.contains("mods")) {
+                this.fetchPathsTask = tempTask;
+                hasModSync = true;
             }
-        }).thenApplyAsync((fcModList) -> {
-            try (Reader reader = Channels.newReader(fcModList, StandardCharsets.UTF_8)) {
-                return GSON.fromJson(reader, ModEntry[].class);
-            } catch (JsonParseException e) {
-                LOGGER.warn("Error parsing mod list", e);
-                throw e;
-            } catch (IOException e) {
-                LOGGER.warn("Failed to open mod list file", e);
-                throw new RuntimeException(e);
-            }
-        }).thenComposeAsync(entries -> {
-            List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> Stream.of(
-                    Utils.downloadIfMissingAsync(this.modDirBase.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
-                    Utils.downloadIfMissingAsync(this.modDirBase.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
-            )).toList();
-            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .thenApply(v -> Arrays.stream(entries)
-                            .map(it -> this.modDirBase.resolve(it.name))
-                            .filter(this::isValid).toList());
-        });
+        }
+
     }
 
     private static PGPSignatureList getSigList(FileChannel fc) throws Exception {
@@ -141,14 +158,28 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
 
     @Override
     public Stream<Path> scanCandidates() {
-        try {
-            return this.fetchPathsTask.join().stream();
-        } catch (Exception e) {
-            LOGGER.error("Mod downloading worker encountered error. " +
-                    "You may observe missing mods or outdated mods. ", e instanceof CompletionException ? e.getCause() : e);
+        LOGGER.debug("Waiting for ALL sync task finished.");
+        if (otherSyncTasks.size()>0) {
+            for (CompletableFuture<Collection<Path>> otherSyncTask : otherSyncTasks) {
+                otherSyncTask.join();
+            }
+        } else {
+            LOGGER.error("NO TASK CONFIGURE, CHECK YOUR remote_sync.json");
             System.setProperty("org.teacon.sync.failed", "true");
             return Stream.empty();
         }
+        if (hasModSync) {
+            try {
+                return this.fetchPathsTask.join().stream();
+            } catch (Exception e) {
+                LOGGER.error("Mod downloading worker encountered error. " +
+                        "You may observe missing mods or outdated mods. ", e instanceof CompletionException ? e.getCause() : e);
+                System.setProperty("org.teacon.sync.failed", "true");
+                return Stream.empty();
+            }
+        }
+        LOGGER.debug("Not mods sync task, return empty list.");
+        return Stream.empty();
     }
 
     @Override
@@ -163,7 +194,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
     private boolean isValid(Path modFile) {
         LOGGER.debug("Verifying {}", modFile.getFileName());
         this.progressFeed.accept("RemoteSync: verifying " + modFile.getFileName());
-        final Path sigPath = modFile.resolveSibling(modFile.getFileName() + ".sig");
+        final Path sigPath = sigDir.resolve(modFile.getFileName() + ".sig");
         try (FileChannel mod = FileChannel.open(modFile, StandardOpenOption.READ)) {
             try (FileChannel sig = FileChannel.open(sigPath, StandardOpenOption.READ)) {
                 final PGPSignatureList sigList;

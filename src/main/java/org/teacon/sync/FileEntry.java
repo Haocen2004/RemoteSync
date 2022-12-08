@@ -22,7 +22,7 @@ package org.teacon.sync;
 
 import java.net.URL;
 
-public final class ModEntry {
+public final class FileEntry {
 
     /**
      * File name to be used. This name also assumes that, the signature file

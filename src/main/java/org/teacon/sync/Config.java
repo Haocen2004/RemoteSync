@@ -21,6 +21,7 @@
 package org.teacon.sync;
 
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -33,21 +34,12 @@ public final class Config {
      * @see URL
      * @see URL#getProtocol()
      */
-    public URL modList;
-    /**
-     * Path to the directory where all downloaded mods are held, relative to the
-     * Minecraft home directory.
-     */
-    public String modDir = "synced_mods";
+    public List<TypeEntry> syncFiles = Collections.emptyList();
     /**
      * Local mod list location for downloading
      */
-    public String localModList = "mod_list.json";
-    /**
-     * Path to the public keys ring file, relative to the Minecraft home directory.
-     */
-    // TODO Re-evaluate this one, we might want to hard code this
-    //   Convention over configuration.
+    public String sigDir = "sig";
+    public String baseDir = ".remoteSync";
     public String keyRingPath = "pub_key.asc";
     /**
      * List of URLs of key servers. These key servers SHOULD support the HTTP
