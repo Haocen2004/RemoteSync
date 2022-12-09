@@ -116,7 +116,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                 List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> {
                     try {
                         return Stream.of(
-                                Utils.downloadIfMissingAsync(e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)) : saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
+                                Utils.downloadIfMissingAsync(e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)).resolve(e.name) : saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
                                 Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
                         );
                     } catch (IOException ex) {
@@ -127,7 +127,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                         .thenApply(v -> Arrays.stream(entries)
                                 .map(it -> {
                                     try {
-                                        return it.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(it.specialLocation)) : saveDirPath.resolve(it.name);
+                                        return it.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(it.specialLocation)).resolve(it.name) : saveDirPath.resolve(it.name);
                                     } catch (IOException e) {
                                         throw new RuntimeException(e);
                                     }
