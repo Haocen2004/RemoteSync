@@ -65,55 +65,45 @@ public final class Utils {
     }
 
     public static String getKeyAlgorithm(int algo) {
-        switch (algo) {
-            case PublicKeyAlgorithmTags.RSA_GENERAL:
-            case PublicKeyAlgorithmTags.RSA_ENCRYPT:
-            case PublicKeyAlgorithmTags.RSA_SIGN:
-                return "RSA";
-            case PublicKeyAlgorithmTags.DSA:
-                return "DSA";
-            case PublicKeyAlgorithmTags.ECDH:
-                return "ECDH";
-            case PublicKeyAlgorithmTags.ECDSA:
-                return "ECDSA";
-            case PublicKeyAlgorithmTags.ELGAMAL_GENERAL:
-            case PublicKeyAlgorithmTags.ELGAMAL_ENCRYPT:
-                return "ELGAMAL";
-            case PublicKeyAlgorithmTags.DIFFIE_HELLMAN:
-                return "DIFFIE_HELLMAN";
-            default:
-                return "UNKNOWN";
-        }
+        return switch (algo) {
+            case PublicKeyAlgorithmTags.RSA_GENERAL, PublicKeyAlgorithmTags.RSA_ENCRYPT, PublicKeyAlgorithmTags.RSA_SIGN ->
+                    "RSA";
+            case PublicKeyAlgorithmTags.DSA -> "DSA";
+            case PublicKeyAlgorithmTags.ECDH -> "ECDH";
+            case PublicKeyAlgorithmTags.ECDSA -> "ECDSA";
+            case PublicKeyAlgorithmTags.ELGAMAL_GENERAL, PublicKeyAlgorithmTags.ELGAMAL_ENCRYPT -> "ELGAMAL";
+            case PublicKeyAlgorithmTags.DIFFIE_HELLMAN -> "DIFFIE_HELLMAN";
+            default -> "UNKNOWN";
+        };
     }
 
     public static String getHashAlgorithm(int algo) {
-        switch (algo) {
+        return switch (algo) {
             // MD
-            case HashAlgorithmTags.MD2: return "MD2";
-            case HashAlgorithmTags.MD5: return "MD5";
+            case HashAlgorithmTags.MD2 -> "MD2";
+            case HashAlgorithmTags.MD5 -> "MD5";
 
             // SHA
-            case HashAlgorithmTags.SHA1: return "SHA1";
-            case HashAlgorithmTags.SHA224: return "SHA224";
-            case HashAlgorithmTags.SHA256: return "SHA256";
-            case HashAlgorithmTags.SHA384: return "SHA384";
-            case HashAlgorithmTags.SHA512: return "SHA512";
-            case HashAlgorithmTags.DOUBLE_SHA: return "DOUBLE-SHA";
+            case HashAlgorithmTags.SHA1 -> "SHA1";
+            case HashAlgorithmTags.SHA224 -> "SHA224";
+            case HashAlgorithmTags.SHA256 -> "SHA256";
+            case HashAlgorithmTags.SHA384 -> "SHA384";
+            case HashAlgorithmTags.SHA512 -> "SHA512";
+            case HashAlgorithmTags.DOUBLE_SHA -> "DOUBLE-SHA";
 
             // RIPEMD
             // https://en.wikipedia.org/wiki/RIPEMD
-            case HashAlgorithmTags.RIPEMD160: return "RIPEMD160";
+            case HashAlgorithmTags.RIPEMD160 -> "RIPEMD160";
 
             // Tiger
             // https://en.wikipedia.org/wiki/Tiger_(hash_function)
-            case HashAlgorithmTags.TIGER_192: return "TIGER192";
+            case HashAlgorithmTags.TIGER_192 -> "TIGER192";
 
             // HAVAL
             // https://en.wikipedia.org/wiki/HAVAL
-            case HashAlgorithmTags.HAVAL_5_160: return "HAVAL-5-160";
-
-            default: return "UNKNOWN";
-        }
+            case HashAlgorithmTags.HAVAL_5_160 -> "HAVAL-5-160";
+            default -> "UNKNOWN";
+        };
     }
 
     /**
@@ -130,18 +120,23 @@ public final class Utils {
         return fetch(src, dst, 0, biasedTowardLocalCache);
     }
 
+    public static FileChannel fetch(URL src, Path dst, int timeout, boolean biasedTowardLocalCache) throws IOException {
+        return fetch(src, dst, timeout, biasedTowardLocalCache, 5);
+    }
+
     /**
      * Blindly fetch bytes from the specified URL with the specified timeout, write to
      * the given destination, and then return the open {@link FileChannel} back.
-     * @param src The source URL of the mod to download
-     * @param dst the destination path of the mod to save
-     * @param timeout Time to wait before giving up the connection
+     *
+     * @param src                    The source URL of the mod to download
+     * @param dst                    the destination path of the mod to save
+     * @param timeout                Time to wait before giving up the connection
      * @param biasedTowardLocalCache If true, local files are always used regardless of remote updates.
      * @return An open {@link FileChannel} with {@link StandardOpenOption#READ} set,
-     *         position at zero.
+     * position at zero.
      * @throws IOException thrown if download fail
      */
-    public static FileChannel fetch(URL src, Path dst, int timeout, boolean biasedTowardLocalCache) throws IOException {
+    public static FileChannel fetch(URL src, Path dst, int timeout, boolean biasedTowardLocalCache, int maxRetry) throws IOException {
         LOGGER.debug(MARKER, "Trying to decide how to get {}", src);
         final URLConnection conn = src.openConnection();
         conn.setConnectTimeout(timeout);
@@ -151,12 +146,23 @@ public final class Utils {
                 return FileChannel.open(dst, StandardOpenOption.READ);
             }
             conn.setIfModifiedSince(Files.getLastModifiedTime(dst).toMillis());
-            try {
-                conn.connect();
-            } catch (IOException e) {
-                // Connection failed, prefer local copy instead
-                LOGGER.debug(MARKER, "Failed to connect to {}, fallback to local copy at {}", src, dst);
-                return FileChannel.open(dst, StandardOpenOption.READ);
+            int retry = 0;
+            while (retry < maxRetry) {
+                try {
+                    conn.connect();
+                    break;
+                } catch (IOException e) {
+                    // Connection failed, prefer local copy instead
+                    retry++;
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ignored) {
+                    }
+                    if (retry >= maxRetry) {
+                        LOGGER.debug(MARKER, "Failed to connect to {}, fallback to local copy at {}", src, dst);
+                        return FileChannel.open(dst, StandardOpenOption.READ);
+                    }
+                }
             }
             if (conn instanceof HttpURLConnection) {
                 int resp = ((HttpURLConnection) conn).getResponseCode();
