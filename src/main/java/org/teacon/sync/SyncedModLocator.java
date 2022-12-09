@@ -59,16 +59,14 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
     private final Consumer<String> progressFeed;
 
     private final PGPKeyStore keyStore;
-
-    private CompletableFuture<Collection<Path>> fetchPathsTask;
-
-    private boolean hasModSync = false;
-
     private final List<CompletableFuture<Collection<Path>>> otherSyncTasks;
     private final Path sigDir;
+    private CompletableFuture<Collection<Path>> fetchPathsTask;
+    private boolean hasModSync = false;
 
     public SyncedModLocator() throws Exception {
-        this.progressFeed = Launcher.INSTANCE.environment().getProperty(Environment.Keys.PROGRESSMESSAGE.get()).orElse(msg -> {});
+        this.progressFeed = Launcher.INSTANCE.environment().getProperty(Environment.Keys.PROGRESSMESSAGE.get()).orElse(msg -> {
+        });
         final Path gameDir = Launcher.INSTANCE.environment().getProperty(IEnvironment.Keys.GAMEDIR.get()).orElse(Paths.get("."));
         final Path cfgPath = gameDir.resolve("remote_sync.json");
         final Config cfg;
@@ -84,32 +82,32 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         this.keyStore = new PGPKeyStore(keyStorePath, cfg.keyServers, cfg.keyIds);
         this.keyStore.debugDump();
         this.otherSyncTasks = new ArrayList<>();
-        for (TypeEntry typeEntry: cfg.syncFiles) {
-            LOGGER.debug("Start to sync {} to {}.",typeEntry.name,typeEntry.saveDir);
+        for (TypeEntry typeEntry : cfg.syncFiles) {
+            LOGGER.debug("Start to sync {} to {}.", typeEntry.name, typeEntry.saveDir);
             Path saveDirPath = Files.createDirectories(gameDir.resolve(typeEntry.saveDir));
             CompletableFuture<Collection<Path>> tempTask = CompletableFuture.supplyAsync(() -> {
                 Path localCache = baseDir.resolve(typeEntry.localCache);
                 try {
-                    this.progressFeed.accept("RemoteSync: fetching "+typeEntry.name+" list");
+                    this.progressFeed.accept("RemoteSync: fetching " + typeEntry.name + " list");
                     // Intentionally do not use config value to ensure that the mod list is always up-to-date
                     return Utils.fetch(typeEntry.file, localCache, cfg.timeout, false);
                 } catch (IOException e) {
-                    LOGGER.warn("Failed to download "+typeEntry.name+" list, will try using locally cached "+typeEntry.name+" list instead. Files may be outdated.", e);
+                    LOGGER.warn("Failed to download " + typeEntry.name + " list, will try using locally cached " + typeEntry.name + " list instead. Files may be outdated.", e);
                     System.setProperty("org.teacon.sync.failed", "true");
                     try {
                         return FileChannel.open(localCache);
                     } catch (Exception e2) {
-                        throw new RuntimeException("Failed to open locally cached "+typeEntry.name+" list", e2);
+                        throw new RuntimeException("Failed to open locally cached " + typeEntry.name + " list", e2);
                     }
                 }
             }).thenApplyAsync((fcModList) -> {
                 try (Reader reader = Channels.newReader(fcModList, StandardCharsets.UTF_8)) {
                     return GSON.fromJson(reader, FileEntry[].class);
                 } catch (JsonParseException e) {
-                    LOGGER.warn("Error parsing "+typeEntry.name+" list", e);
+                    LOGGER.warn("Error parsing " + typeEntry.name + " list", e);
                     throw e;
                 } catch (IOException e) {
-                    LOGGER.warn("Failed to open "+typeEntry.name+" list file", e);
+                    LOGGER.warn("Failed to open " + typeEntry.name + " list file", e);
                     throw new RuntimeException(e);
                 }
             }).thenComposeAsync(entries -> {
@@ -158,19 +156,19 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         return sigList;
     }
 
-        @Override
-        public List<IModFile> scanMods() {
-            List<IModFile> result = new ArrayList<>();
-            for (Optional<IModFile> optionalIModFile : scanCandidates().map(this::createMod).toList()) {
-                optionalIModFile.map(result::add);
-            }
-            return result;
+    @Override
+    public List<IModFile> scanMods() {
+        List<IModFile> result = new ArrayList<>();
+        for (Optional<IModFile> optionalIModFile : scanCandidates().map(this::createMod).toList()) {
+            optionalIModFile.map(result::add);
         }
+        return result;
+    }
 
     @Override
     public Stream<Path> scanCandidates() {
         LOGGER.debug("Waiting for ALL sync task finished.");
-        if (otherSyncTasks.size()>0) {
+        if (otherSyncTasks.size() > 0) {
             for (CompletableFuture<Collection<Path>> otherSyncTask : otherSyncTasks) {
                 otherSyncTask.join();
             }

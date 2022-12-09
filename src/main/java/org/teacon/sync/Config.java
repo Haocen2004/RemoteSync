@@ -56,10 +56,10 @@ public final class Config {
      */
     public int timeout = 15000;
     /**
-     * If true, RemoteSync will always try using local cache, even if the file with the 
+     * If true, RemoteSync will always try using local cache, even if the file with the
      * same name on the remote server has been updated.
      * <p>
-     * Note that this config option will not take effect when fetching the mod list. The 
+     * Note that this config option will not take effect when fetching the mod list. The
      * mod list is expected to be always the latest.
      * </p>
      */

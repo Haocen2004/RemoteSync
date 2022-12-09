@@ -44,12 +44,12 @@ RemoteSync works in the following way:
   2. When game starts, RemoteSync loads the config file `remote_sync.json` 
      (under your `gameDir`) and load public key rings from the path 
      specified in the config file.
-  3. RemoteSync will then fetch the mod list from the URL given in the 
-     config file `remote_sync.json` (under your `gameDir`). RemoteSync 
-     caches the mod list file and uses the cached version if remote does 
+  3. RemoteSync will then fetch the mod list from the URL given in the
+     config file `remote_sync.json` (under your `gameDir`). RemoteSync
+     caches the mod list file and uses the cached version if remote does
      not have updates.
-  3. RemoteSync then downloads and caches all mods and their signatures 
-     according to the mod list, verify their identity and handle them 
+  4. RemoteSync then downloads and caches all mods and their signatures
+     according to the mod list, verify their identity and handle them
      to FML if and only if verified.
 
 ## Trust Model

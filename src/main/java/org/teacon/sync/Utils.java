@@ -39,8 +39,6 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -51,13 +49,9 @@ public final class Utils {
     private static final Marker MARKER = MarkerManager.getMarker("Downloader");
 
     private static final Set<OpenOption> OPTIONS;
+
     static {
-        HashSet<OpenOption> options = new HashSet<>();
-        options.add(StandardOpenOption.CREATE);
-        options.add(StandardOpenOption.TRUNCATE_EXISTING);
-        options.add(StandardOpenOption.READ);
-        options.add(StandardOpenOption.WRITE);
-        OPTIONS = Collections.unmodifiableSet(options);
+        OPTIONS = Set.of(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ, StandardOpenOption.WRITE);
     }
 
     private Utils() {
@@ -109,11 +103,12 @@ public final class Utils {
     /**
      * Blindly fetch bytes from the specified URL with no timeout, write to the given
      * destination, and then return the open {@link FileChannel} back.
-     * @param src The source URL of the mod to download
-     * @param dst the destination path of the mod to save
+     *
+     * @param src                    The source URL of the mod to download
+     * @param dst                    the destination path of the mod to save
      * @param biasedTowardLocalCache If true, local files are always used regardless of remote updates.
      * @return An open {@link FileChannel} with {@link StandardOpenOption#READ} set,
-     *         position at zero.
+     * position at zero.
      * @throws IOException thrown if download fail
      */
     public static FileChannel fetch(URL src, Path dst, boolean biasedTowardLocalCache) throws IOException {
@@ -186,10 +181,11 @@ public final class Utils {
     /**
      * Blindly fetch bytes from the input stream, write to the given destination,
      * and then return the open {@link FileChannel} back.
+     *
      * @param src The source stream of the mod to download
      * @param dst the destination path of the mod to save
      * @return An open {@link FileChannel} with {@link StandardOpenOption#READ} set,
-     *         position at zero.
+     * position at zero.
      * @throws IOException thrown if download fail
      * @see <a href="https://stackoverflow.com/a/921400">Referred code on Stack Overflow</a>
      */
@@ -206,8 +202,9 @@ public final class Utils {
     /**
      * Asynchronously download the resource to the specified destination if it does
      * not exist yet.
-     * @param target The path to the file
-     * @param src Fallback URL to download from if target does not exist
+     *
+     * @param target  The path to the file
+     * @param src     Fallback URL to download from if target does not exist
      * @param timeout Number of milliseconds to wait before giving up connection
      * @return A {@link CompletableFuture} that represents this task.
      */
@@ -221,7 +218,7 @@ public final class Utils {
             }
         }).handleAsync((fc, e) -> {
             if (e != null) {
-                LOGGER.warn(MARKER,"Failed to download {}", src);
+                LOGGER.warn(MARKER, "Failed to download {}", src);
                 LOGGER.debug(MARKER, "Details: src = {}, dst = {}", src, target, e);
             } else if (fc != null) {
                 try {
