@@ -113,13 +113,25 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                     throw new RuntimeException(e);
                 }
             }).thenComposeAsync(entries -> {
-                List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> Stream.of(
-                        Utils.downloadIfMissingAsync(saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
-                        Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
-                )).toList();
+                List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> {
+                    try {
+                        return Stream.of(
+                                Utils.downloadIfMissingAsync(e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)) : saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
+                                Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
+                        );
+                    } catch (IOException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }).toList();
                 return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .thenApply(v -> Arrays.stream(entries)
-                                .map(it -> saveDirPath.resolve(it.name))
+                                .map(it -> {
+                                    try {
+                                        return it.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(it.specialLocation)) : saveDirPath.resolve(it.name);
+                                    } catch (IOException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                })
                                 .filter(this::isValid).toList());
             });
             this.otherSyncTasks.add(tempTask);

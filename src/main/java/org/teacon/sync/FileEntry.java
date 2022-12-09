@@ -38,4 +38,8 @@ public final class FileEntry {
      */
     public URL sig;
 
+    public boolean hasSpecialLocation = false;
+
+    public String specialLocation = "";
+
 }
