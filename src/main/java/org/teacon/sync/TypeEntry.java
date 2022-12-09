@@ -24,12 +24,6 @@ import java.net.URL;
 
 public final class TypeEntry {
 
-    public TypeEntry(String name, URL file, String saveDir) {
-        this.name = name;
-        this.file = file;
-        this.saveDir = saveDir;
-    }
-
     public String name;
     public URL file;
     public String saveDir;
