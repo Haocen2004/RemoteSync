@@ -42,4 +42,6 @@ public final class FileEntry {
 
     public String specialLocation = "";
 
+    public boolean delete = false;
+
 }

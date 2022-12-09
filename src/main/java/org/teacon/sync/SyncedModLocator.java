@@ -111,18 +111,35 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                     throw new RuntimeException(e);
                 }
             }).thenComposeAsync(entries -> {
-                List<CompletableFuture<Void>> futures = Arrays.stream(entries).flatMap(e -> {
-                    try {
-                        return Stream.of(
-                                Utils.downloadIfMissingAsync(e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)).resolve(e.name) : saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
-                                Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
-                        );
-                    } catch (IOException ex) {
-                        throw new RuntimeException(ex);
-                    }
-                }).toList();
+                List<CompletableFuture<Void>> futures = Arrays.stream(entries)
+                        .flatMap(e -> {
+                            if (e.delete) {
+
+                                try {
+                                    Path path = e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)).resolve(e.name) : saveDirPath.resolve(e.name);
+                                    if (path.toFile().delete()) {
+                                        LOGGER.debug("File {} deleted.", path.toAbsolutePath().toString());
+                                    }
+                                } catch (IOException ex) {
+                                    throw new RuntimeException(ex);
+                                }
+                            }
+                            return Stream.of(e);
+                        })
+                        .filter(entry -> !entry.delete)
+                        .flatMap(e -> {
+                            try {
+                                return Stream.of(
+                                        Utils.downloadIfMissingAsync(e.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(e.specialLocation)).resolve(e.name) : saveDirPath.resolve(e.name), e.file, cfg.timeout, cfg.preferLocalCache, this.progressFeed),
+                                        Utils.downloadIfMissingAsync(sigDir.resolve(e.name + ".sig"), e.sig, cfg.timeout, cfg.preferLocalCache, this.progressFeed)
+                                );
+                            } catch (IOException ex) {
+                                throw new RuntimeException(ex);
+                            }
+                        }).toList();
                 return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .thenApply(v -> Arrays.stream(entries)
+                                .filter(entry -> !entry.delete)
                                 .map(it -> {
                                     try {
                                         return it.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(it.specialLocation)).resolve(it.name) : saveDirPath.resolve(it.name);
