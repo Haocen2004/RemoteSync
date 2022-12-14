@@ -64,4 +64,5 @@ public final class Config {
      * </p>
      */
     public boolean preferLocalCache = true;
+    public long fullCheckTs = 0;
 }
