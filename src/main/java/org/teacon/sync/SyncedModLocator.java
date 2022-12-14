@@ -21,6 +21,7 @@
 package org.teacon.sync;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import cpw.mods.modlauncher.Launcher;
 import cpw.mods.modlauncher.api.IEnvironment;
@@ -45,7 +46,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -84,7 +84,8 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         this.keyStore = new PGPKeyStore(keyStorePath, cfg.keyServers, cfg.keyIds);
         this.keyStore.debugDump();
         this.otherSyncTasks = new ArrayList<>();
-        if (cfg.fullCheckTs < System.currentTimeMillis() - 24 * 60 * 60 * 1000 * 3) {
+        if (cfg.fullCheckTs < (System.currentTimeMillis() - 24 * 60 * 60 * 1000 * 3)) {
+            LOGGER.warn("last full check at {}, was expired, preparing for a full check, it may take a long time.", cfg.fullCheckTs);
             outDate = true;
             tempLocalCacheState = cfg.preferLocalCache;
             cfg.preferLocalCache = false;
@@ -97,6 +98,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                 hasModSync = true;
             }
         }
+        LOGGER.debug("All Tasks INIT Success.");
 
     }
 
@@ -150,36 +152,40 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
                 }
             }).toList();
             return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenApply(v -> {
+                final boolean[] hasFailed = new boolean[1];
                 Stream<Path> temp = Arrays.stream(entries).filter(entry -> !entry.delete).map(it -> {
                     try {
                         return it.hasSpecialLocation ? Files.createDirectories(saveDirPath.resolve(it.specialLocation)).resolve(it.name) : saveDirPath.resolve(it.name);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
-                });
-                if (typeEntry.name.equals("mods")) {
-                    return temp.filter(this::isValid).toList();
-                } else {
-                    AtomicBoolean hasFailed = new AtomicBoolean(false);
-                    temp.filter(path -> !isValid(path)).peek(e -> {
-                        LOGGER.debug("{}: verify {} failed", typeEntry.name, e.getFileName());
-                        hasFailed.set(true);
-                    }).map(Path::toFile).map(File::delete).close();
-                    if (hasFailed.get()) {
-                        if (maxRetry > 0) {
-                            try {
-                                LOGGER.warn("retry for verify {}, {}", typeEntry.name, maxRetry);
-                                return createTask(typeEntry, baseDir, cfg, maxRetry - 1).join();
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        } else {
-                            LOGGER.warn("{} verify failed.", typeEntry.name);
+                }).filter(path -> {
+                    boolean pass = isValid(path);
+                    if (!pass) {
+                        hasFailed[0] = true;
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException es) {
+                            throw new RuntimeException(es);
                         }
                     }
-
+                    return pass;
+                });
+                List<Path> paths = temp.toList();
+                if (hasFailed[0]) {
+                    if (maxRetry > 0) {
+                        try {
+                            LOGGER.warn("retry for verify {}, {}", typeEntry.name, maxRetry);
+                            return createTask(typeEntry, baseDir, cfg, maxRetry - 1).join().stream().toList();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        LOGGER.warn("{} verify failed.", typeEntry.name);
+                    }
                 }
-                return null;
+
+                return paths;
             });
 
         });
@@ -211,9 +217,12 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
             cfg.fullCheckTs = System.currentTimeMillis();
             cfg.preferLocalCache = tempLocalCacheState;
         }
-        try {
-            GSON.toJson(cfg, new FileWriter(cfgPath.toFile()));
+        try (OutputStream outputStream = new FileOutputStream(cfgPath.toFile())) {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            String cfgJson = gson.toJson(cfg);
+            outputStream.write(cfgJson.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
+            LOGGER.error(e);
             throw new RuntimeException(e);
         }
         return result;
@@ -225,6 +234,7 @@ public final class SyncedModLocator extends AbstractJarFileLocator {
         if (otherSyncTasks.size() > 0) {
             for (CompletableFuture<Collection<Path>> otherSyncTask : otherSyncTasks) {
                 otherSyncTask.join();
+                LOGGER.debug("a task finished.");
             }
         } else {
             LOGGER.error("NO TASK CONFIGURE, CHECK YOUR remote_sync.json");
